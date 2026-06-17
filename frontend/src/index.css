@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+/* ── Majlis (Estimation + Tarneeb) design tokens ──
+   A real card table: deep emerald felt, brass/gold trim, ivory cards. Distinct
+   from every other example. Cards are CSS-rendered (crisp at any size, no asset
+   files); the felt + gold + card faces carry the polish. */
+@theme {
+  --color-ink: #f3efe2;        /* ivory text on felt */
+  --color-ink-soft: #c9c2ad;
+  --color-felt: #0c5d3b;       /* table felt */
+  --color-felt-deep: #073d27;
+  --color-rail: #5a3a1a;       /* wooden rail */
+  --color-gold: #d8b15a;       /* brass trim / accent */
+  --color-gold-ink: #8a6a22;
+  --color-accent: #d8b15a;     /* shared MemphisGate accent (alias of gold) */
+  --color-card: #fbfaf6;       /* card face */
+  --color-card-red: #c0392b;
+  --color-card-black: #1a1a1a;
+
+  --font-display: 'Georgia', 'Times New Roman', serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #0e7048 0%, var(--color-felt) 45%, var(--color-felt-deep) 100%) fixed;
+}
+.font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
+.nums { font-variant-numeric: tabular-nums; }
+
+/* ── Playing card (CSS-rendered face) ── */
+.pcard {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--color-card);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 1px rgba(0,0,0,.06);
+  font-family: var(--font-display);
+  font-weight: 700;
+  user-select: none;
+  line-height: 1;
+}
+.pcard .corner { padding: 4px 5px; display: flex; flex-direction: column; align-items: center; width: fit-content; }
+.pcard .corner.br { align-self: flex-end; transform: rotate(180deg); }
+.pcard .mid { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.1em; opacity: .9; }
+.pcard.red { color: var(--color-card-red); }
+.pcard.black { color: var(--color-card-black); }
+.pcard.back {
+  background:
+    repeating-linear-gradient(45deg, #b9933f 0 6px, #a07f33 6px 12px);
+  box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 2px var(--color-card), inset 0 0 0 3px #8a6a22;
+}
+
+.felt-panel { background: rgba(7,61,39,.55); border: 1px solid rgba(216,177,90,.25); border-radius: 16px; backdrop-filter: blur(4px); }
+.gold-ring { box-shadow: inset 0 0 0 1px rgba(216,177,90,.4); }
+
+:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

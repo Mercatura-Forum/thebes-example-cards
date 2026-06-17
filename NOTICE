@@ -1,0 +1,14 @@
+Thebes Protocol — Store Example
+Copyright (c) 2026 Mercatura Forum
+
+An example application for Thebes Protocol. It depends on the Thebes developer
+SDK (@thebes/sdk) and the Thebes Motoko backend library (thebes-lib), and builds
+on the Motoko core library:
+
+  • Motoko core library — © DFINITY Foundation, Apache-2.0
+                          https://github.com/dfinity/motoko-core
+
+Licensed under the Apache License, Version 2.0. You may obtain a copy of the
+License at http://www.apache.org/licenses/LICENSE-2.0
+
+Authored by the Thebes Protocol contributors.

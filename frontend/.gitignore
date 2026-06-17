@@ -1,0 +1,7 @@
+# Browser runtimes are synced from @thebes/sdk at build time (npm run sync-sdk)
+/public/boundary.js
+/public/passkey.js
+
+# Build output / deps
+node_modules
+dist

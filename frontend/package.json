@@ -1,0 +1,31 @@
+{
+  "name": "thebes-example-cards",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Thebes example dapp — on-chain card games: Estimation + Tarneeb (React + Vite + Tailwind, served as certified assets).",
+  "scripts": {
+    "dev": "npm run sync-sdk && vite",
+    "build": "npm run sync-sdk && tsc -b && vite build",
+    "preview": "vite preview",
+    "sync-sdk": "mkdir -p public && cp node_modules/@thebes/sdk/runtime/boundary.js node_modules/@thebes/sdk/runtime/passkey.js public/"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.2.10",
+    "@fontsource-variable/geist": "^5.2.9",
+    "@thebes/sdk": "github:Mercatura-Forum/thebes-sdk#v0.1.1",
+    "motion": "^12.40.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "~5.7.0",
+    "vite": "^6.0.0"
+  }
+}

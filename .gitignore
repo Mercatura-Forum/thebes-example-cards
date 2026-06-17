@@ -1,0 +1,13 @@
+# Frontend
+**/node_modules/
+**/dist/
+**/.vite/
+# Synced from @thebes/sdk at build (npm run sync-sdk)
+frontend/public/boundary.js
+frontend/public/passkey.js
+# Motoko
+**/.mops/
+**/mops.lock
+**/build/
+.DS_Store
+**/*.tsbuildinfo
