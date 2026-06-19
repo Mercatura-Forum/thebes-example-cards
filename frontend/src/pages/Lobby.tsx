@@ -15,12 +15,12 @@ export function Lobby() {
 
   async function create(game: 'estimation' | 'tarneeb') {
     setBusy(true); setErr(undefined)
-    try { nav(`/t/${(await createTable(game, auth.displayName)).toString()}`) }
+    try { nav(`/t/${(await createTable(game, auth.displayName || 'Player')).toString()}`) }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
   async function join(id: bigint) {
     setBusy(true); setErr(undefined)
-    try { await joinTable(id, auth.displayName); nav(`/t/${id.toString()}`) }
+    try { await joinTable(id, auth.displayName || 'Player'); nav(`/t/${id.toString()}`) }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
 

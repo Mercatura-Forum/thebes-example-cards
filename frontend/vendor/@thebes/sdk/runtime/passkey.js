@@ -4,7 +4,7 @@
  * Talks to:
  *   POST /api/call                    (boundary passthrough → validator /api/call)
  *   GET  /api/receipt?hash=<hex>      (boundary passthrough → validator /api/receipt)
- *   POST /api/v1/contract/921/query   (boundary query passthrough)
+ *   POST /api/query                   (boundary query passthrough; hex arg + hex reply)
  *
  * Surface exposed at window.MemphisPasskey:
  *   register(name)               -> { name, anchor_id_hex, session_token_hex, expires_at_ns, display_tag }
@@ -506,17 +506,17 @@
         return u;
     }
     async function memphisQuery(method, argBytes) {
-        const argB64 = bytesToBase64(argBytes);
-        const res = await fetch(BOUNDARY + "/api/v1/contract/" + MEMPHIS_CID + "/query", {
+        const argHex = bytesToHex(argBytes);
+        const res = await fetch(BOUNDARY + "/api/query", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ method, arg: argB64, sender: "" }),
+            body: JSON.stringify({ canister_id: MEMPHIS_CID, method, arg: argHex, sender: "" }),
         }).then(r => r.json());
         if (res.status !== "success") throw new Error("query: " + (res.error || res.status));
         if (!res.reply) throw new Error("query: empty reply");
-        // /api/v1/contract/{cid}/query returns reply as base64; /api/receipt
-        // (used by memphisCallAwait below) returns it as hex.
-        return base64ToBytes(res.reply);
+        // /api/query takes the arg as hex and returns the reply as hex (the same
+        // boundary route and encoding boundary.js uses; /api/receipt below is hex too).
+        return hexToBytes(res.reply);
     }
 
     // ─── CBOR (the minimum needed to extract authData) ─────────────────────
