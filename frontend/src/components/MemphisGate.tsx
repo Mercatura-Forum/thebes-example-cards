@@ -44,7 +44,13 @@ export function SignOutChip({ className = '' }: { className?: string }) {
     </span>
   )
 
-  const submit = () => auth.signIn(name.trim() || 'Player').catch(() => { /* surfaced by auth.error */ })
+  // Memphis handles look like  <stem>.thebes  — we append ".thebes" so a player
+  // only types the stem (3–32 chars, a–z 0–9 -). No bare fallback: an invalid
+  // stem keeps the button disabled instead of failing with a cryptic error.
+  const stem = name.trim().toLowerCase().replace(/\.thebes$/, '')
+  const stemOk = stem.length >= 3 && stem.length <= 32 && /^[a-z0-9-]+$/.test(stem) && !stem.startsWith('-') && !stem.endsWith('-')
+  const handle = `${stem}.thebes`
+  const submit = () => { if (stemOk && !auth.busy) auth.signIn(handle).catch(() => { /* surfaced by auth.error */ }) }
 
   if (!open) return (
     <button
@@ -54,13 +60,18 @@ export function SignOutChip({ className = '' }: { className?: string }) {
   )
 
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <input
-        className="rounded-lg bg-black/20 px-2.5 py-1.5 text-sm text-ink ring-1 ring-[var(--color-gold)]/30 outline-none focus:ring-[var(--color-gold)]"
-        placeholder="Your name" value={name} autoFocus
-        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
-      />
-      <Button onClick={submit} disabled={auth.busy}>{auth.busy ? 'Signing in…' : 'Sign in with passkey'}</Button>
+    <span className={`inline-flex flex-col items-stretch gap-1 ${className}`}>
+      <span className="inline-flex items-center gap-2">
+        <input
+          className="rounded-lg bg-black/20 px-2.5 py-1.5 text-sm text-ink ring-1 ring-[var(--color-gold)]/30 outline-none focus:ring-[var(--color-gold)]"
+          placeholder="yourname" value={name} autoFocus aria-label="Thebes handle"
+          onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        <Button onClick={submit} disabled={auth.busy || !stemOk}>{auth.busy ? 'Signing in…' : 'Sign in with passkey'}</Button>
+      </span>
+      <span style={{ fontSize: '11px', opacity: 0.7 }}>
+        {stem ? <>→ becomes <b>{handle}</b></> : 'pick a handle — we add .thebes'} · 3–32 · a–z 0–9 -
+      </span>
       {auth.error && <ErrorNote message={auth.error} />}
     </span>
   )
