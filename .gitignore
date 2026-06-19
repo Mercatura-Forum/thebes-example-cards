@@ -11,3 +11,7 @@ frontend/public/passkey.js
 **/build/
 .DS_Store
 **/*.tsbuildinfo
+
+# Vendored @thebes/sdk ships its build so the example builds standalone (no external pin)
+# The asset canister wasm is fetched from the Thebes-Protocol- release, not committed
+/asset_canister.wasm

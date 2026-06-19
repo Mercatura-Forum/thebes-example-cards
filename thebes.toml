@@ -1,0 +1,27 @@
+[project]
+name = "thebes-example-cards"
+default_network = "wan"
+chain_id = 2026
+
+[networks.wan]
+validators = [
+    "http://72.62.235.133:18080",
+    "http://72.62.235.127:18080",
+    "http://72.62.235.134:18080",
+    "http://76.13.140.52:18080",
+]
+boundary = "https://memphis.mercaturaforum.com"
+routing = "smart"
+
+[canisters.cards]
+type = "backend-motoko"
+cid = "auto"
+wasm = "build/cards.wasm"
+build = 'cd motoko && mops install >/dev/null 2>&1 && mkdir -p ../build && MOC="$(ls "$HOME/.cache/mops/moc/1.4.1/moc" "$HOME/Library/Caches/mops/moc/1.4.1/moc" 2>/dev/null | head -1)" && "$MOC" $(mops sources) -o ../build/cards.wasm main.mo'
+
+[canisters.web]
+type = "frontend"
+cid = "auto"
+wasm = "asset_canister.wasm"
+bundle = "frontend/dist"
+health_check_url = "/index.html"
