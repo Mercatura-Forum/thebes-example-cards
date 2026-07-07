@@ -17,7 +17,8 @@ frontend (React + Vite + Tailwind)   →   cards backend (Motoko)
 
 - **frontend/** uses `@thebes/sdk` for the boundary client, typed query/update
   calls, React hooks, and the Memphis passkey gate. The SDK is **vendored** under
-  `frontend/vendor/@thebes/sdk` and resolved as a local dependency.
+  `frontend/vendor/@thebes/sdk` and resolved as a local dependency
+  (upstream source of truth: [`thebes-sdk`](https://github.com/Mercatura-Forum/thebes-sdk)).
 - **motoko/** uses `thebes-lib` for `Admin` (controller-gated operations); the
   game logic lives in `main.mo`. The library is **vendored** under
   `motoko/thebes-lib` and resolved as a local Mops dependency.
