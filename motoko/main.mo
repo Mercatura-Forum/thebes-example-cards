@@ -99,7 +99,14 @@ persistent actor Cards {
   };
 
   var nextTableId : Nat = 0;
-  let tables = Map.empty<Nat, Table>();
+  // `games` was renamed from `tables` to `sessions` in the trick-replay upgrade: adding the
+  // structured `card` field to Event made the old `tables` stable type
+  // memory-incompatible under EOP. Tables are EPHEMERAL (deleted after each
+  // session), so the upgrade drops them by renaming the stable variable — EOP
+  // discards the removed `tables` and initialises `sessions` fresh, while `stats`
+  // (the leaderboard) and `nextTableId` persist by name. No `with migration`
+  // needed for a clean, state-preserving-where-it-matters upgrade.
+  let sessions = Map.empty<Nat, Table>();
 
   // Lifetime results per human player (bots don't keep score in the book).
   type PlayerStats = { name : Text; games : Nat; wins : Nat; points : Int };
@@ -138,7 +145,7 @@ persistent actor Cards {
   };
 
   func getTable(id : Nat) : Table {
-    switch (Map.get(tables, Nat.compare, id)) { case (?t) t; case null { Runtime.trap("table not found") } };
+    switch (Map.get(sessions, Nat.compare, id)) { case (?t) t; case null { Runtime.trap("table not found") } };
   };
   func seatOf(t : Table, caller : Principal) : Int {
     var i = 0;
@@ -192,7 +199,7 @@ persistent actor Cards {
     let t = newTable(id, game);
     t.seats[0] := ?msg.caller;
     t.names[0] := displayName;
-    Map.add(tables, Nat.compare, id, t);
+    Map.add(sessions, Nat.compare, id, t);
     logEvent(t, 0, "table.open", displayName # " opened the table");
     id
   };
@@ -249,7 +256,7 @@ persistent actor Cards {
   public shared(msg) func closeTable(tableId : Nat) : async () {
     let t = getTable(tableId);
     if (seatOf(t, msg.caller) < 0 and not Admin.isOwner(admin, msg.caller)) Runtime.trap("You are not at this table.");
-    ignore Map.take(tables, Nat.compare, tableId);
+    ignore Map.take(sessions, Nat.compare, tableId);
   };
 
   // ── Deal: shuffle from raw_rand (consensus beacon) → Fisher–Yates ──
@@ -735,7 +742,7 @@ persistent actor Cards {
     tablesChecked : Nat; violations : Nat; liveGames : Nat; checkedAt : Int;
   }] {
     var checked = 0; var violations = 0; var live = 0;
-    for ((_, t) in Map.entries(tables)) {
+    for ((_, t) in Map.entries(sessions)) {
       checked += 1;
       if (t.phase == #playing or t.phase == #bidding or t.phase == #estimating) {
         live += 1;
@@ -818,7 +825,7 @@ persistent actor Cards {
   public query func openTables() : async [{
     id : Nat; game : Text; seatsTaken : Nat; bots : Nat; phase : Text; handNumber : Nat;
   }] {
-    let arr = Map.toArray<Nat, Table>(tables);
+    let arr = Map.toArray<Nat, Table>(sessions);
     Array.map<(Nat, Table), { id : Nat; game : Text; seatsTaken : Nat; bots : Nat; phase : Text; handNumber : Nat }>(
       arr,
       func((_, t)) {
