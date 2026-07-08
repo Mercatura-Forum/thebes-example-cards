@@ -138,6 +138,10 @@ export function Table() {
                     <p key={s.seat.toString()}>{s.name}: {s.score.toString()} pts</p>
                   ))}
                 </div>
+                {/* the contract awards a tied score to the earliest seat — say so */}
+                {state.game === 'estimation' && seats.filter((s) => s.score === seats[Number(state.winnerSeat)]?.score).length > 1 && (
+                  <p className="mt-2 text-xs italic text-ink-soft">a tied diwan goes to the elder seat — house rule</p>
+                )}
                 <div className="mt-5 flex justify-center gap-3">
                   <Button onClick={() => act(() => rematch(tableId))}>Rematch</Button>
                   <Link to="/"><Button variant="ghost">Back to the lobby</Button></Link>
