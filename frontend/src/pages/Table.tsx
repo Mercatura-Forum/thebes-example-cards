@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { query } from '@thebes/sdk'
@@ -11,7 +11,30 @@ import { SUIT_NAME, SUIT_SYMBOL, suitOf } from '../lib/config'
 import { Card } from '../components/Card'
 import { Button, Spinner, ErrorNote, Panel, SuitChip } from '../components/ui'
 
-function useTable(id: bigint) {
+const inHandPhase = (phase: string) => phase === 'bidding' || phase === 'estimating' || phase === 'playing'
+
+// Where each relative seat sits on screen (used to throw cards from the right
+// direction into the trick).
+const THROW_FROM = [
+  { x: 0, y: 130 },   // 0 me (bottom)
+  { x: -170, y: 0 },  // 1 left
+  { x: 0, y: -130 },  // 2 top
+  { x: 170, y: 0 },   // 3 right
+]
+
+const cardName = (c: number) => `${['2','3','4','5','6','7','8','9','10','J','Q','K','A'][c % 13]}${SUIT_SYMBOL[suitOf(c)]}`
+
+// A trick replayed one move at a time. `felt[seat]` is the card showing for each
+// seat (-1 none); `winner` glows the seat that just took a trick; `caption`
+// narrates the current beat in the centre.
+type Stage = { felt: number[]; winner: number | null; caption: string | null }
+
+const reduced = typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const SP = reduced ? 0.18 : 1 // replay speed multiplier (fast for reduced-motion)
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.round(ms * SP)))
+
+function useTable(id: bigint, pausedRef: React.MutableRefObject<boolean>) {
   const [state, setState] = useState<GameState>()
   const [seats, setSeats] = useState<SeatRow[]>([])
   const [hand, setHand] = useState<number[]>([])
@@ -32,30 +55,92 @@ function useTable(id: bigint) {
       setErr(undefined)
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
   }, [id])
-  useEffect(() => { refresh(); const t = setInterval(refresh, 1600); return () => clearInterval(t) }, [refresh])
+  useEffect(() => {
+    refresh()
+    const t = setInterval(() => { if (!pausedRef.current) refresh() }, 1600)
+    return () => clearInterval(t)
+  }, [refresh, pausedRef])
   return { state, seats, hand, events, err, refresh }
 }
-
-const inHand = (phase: string) => phase === 'bidding' || phase === 'estimating' || phase === 'playing'
-
-// Where each relative seat sits on screen (used to throw cards from the right
-// direction into the trick).
-const THROW_FROM = [
-  { x: 0, y: 130 },   // 0 me (bottom)
-  { x: -170, y: 0 },  // 1 left
-  { x: 0, y: -130 },  // 2 top
-  { x: 170, y: 0 },   // 3 right
-]
 
 export function Table() {
   const { id } = useParams()
   const tableId = BigInt(id ?? '0')
-  const { state, seats, hand, events, err, refresh } = useTable(tableId)
+  const pausedRef = useRef(false)
+  const { state, seats, hand, events, err, refresh } = useTable(tableId, pausedRef)
   const [actErr, setActErr] = useState<string>()
-  const act = async (fn: () => Promise<unknown>) => {
+  const [stage, setStage] = useState<Stage | null>(null)
+
+  // Replay everything the contract did inside one move: the bots run — and a
+  // trick resolves — in the SAME message as the human's play, so the settled
+  // state we'd poll never shows the round being played out. We fetch the events
+  // that move produced and step through them on the felt, so you watch each
+  // opponent play, the trick complete, and who took it — before it's your turn
+  // again. (Card conservation is untouched; this is pure presentation.)
+  const replay = useCallback(async (seqBefore: bigint, preFelt: number[], names: string[]) => {
+    let after: GameState | undefined
+    try {
+      const s = await query(CARDS_CID, M.state, idArg(tableId))
+      after = decodeState(s.reply_hex ?? s.reply ?? '')
+    } catch { /* fall through to a plain refresh */ }
+    const seqAfter = after?.eventSeq ?? seqBefore
+    const count = Number(seqAfter - seqBefore)
+    if (count <= 0) return
+    let evs: TableEvent[] = []
+    try {
+      const ev = await query(CARDS_CID, M.events, pageArg(tableId, 0, count))
+      evs = decodeEvents(ev.reply_hex ?? ev.reply ?? '').reverse() // chronological
+    } catch { return }
+    const felt = [...preFelt]
+    const name = (seat: number) => names[seat] || `Seat ${seat}`
+    setStage({ felt: [...felt], winner: null, caption: null })
+    for (const e of evs) {
+      const kind = e.kind
+      const seat = Number(e.seat)
+      if (kind === 'card.play') {
+        felt[seat] = Number(e.card)
+        setStage({ felt: [...felt], winner: null, caption: `${name(seat)} plays the ${cardName(Number(e.card))}` })
+        await sleep(680)
+      } else if (kind === 'trick.won') {
+        setStage({ felt: [...felt], winner: seat, caption: `${name(seat)} takes the trick` })
+        await sleep(1150)
+        for (let i = 0; i < 4; i++) felt[i] = -1
+        setStage({ felt: [...felt], winner: null, caption: null })
+        await sleep(260)
+      } else if (kind.startsWith('bid') || kind === 'estimate.set') {
+        setStage({ felt: [...felt], winner: null, caption: e.detail })
+        await sleep(760)
+      } else if (kind === 'hand.scored' || kind === 'hand.deal' || kind === 'match.won') {
+        setStage({ felt: [...felt], winner: null, caption: e.detail })
+        await sleep(900)
+      }
+    }
+    setStage(null)
+  }, [tableId])
+
+  // Run one move: pause polling, snapshot the pre-move felt, submit, replay what
+  // happened, then resume live polling. Errors surface and we refresh to truth.
+  const move = useCallback(async (fn: () => Promise<unknown>) => {
+    if (pausedRef.current) return
     setActErr(undefined)
-    try { await fn(); refresh() } catch (e) { setActErr(e instanceof Error ? e.message : String(e)); refresh() }
-  }
+    pausedRef.current = true
+    const seqBefore = state?.eventSeq ?? 0n
+    const preFelt = [0, 1, 2, 3].map((i) => {
+      const s = seats.find((r) => Number(r.seat) === i)
+      return s && Number(s.played) >= 0 ? Number(s.played) : -1
+    })
+    const names = [0, 1, 2, 3].map((i) => seats.find((r) => Number(r.seat) === i)?.name ?? '')
+    try {
+      await fn()
+      await replay(seqBefore, preFelt, names)
+    } catch (e) {
+      setActErr(e instanceof Error ? e.message : String(e))
+      setStage(null)
+    } finally {
+      await refresh()
+      pausedRef.current = false
+    }
+  }, [state, seats, replay, refresh])
 
   // Idle clock, anchored to chain time (nowNs rides in the state view).
   const [idleFor, setIdleFor] = useState(0)
@@ -71,14 +156,14 @@ export function Table() {
 
   const mySeat = Number(state.mySeat)
   const current = Number(state.current)
-  const myTurn = mySeat >= 0 && mySeat === current
+  const myTurn = mySeat >= 0 && mySeat === current && !stage
   const rel = (seat: number) => (mySeat < 0 ? seat : (seat - mySeat + 4) % 4) // 0 me,1 left,2 top,3 right
   const seatAt = (r: number) => seats.find((s) => rel(Number(s.seat)) === r)
   const trumpLabel = SUIT_NAME[Number(state.trump)] ?? '—'
-  const inHand = state.phase === 'bidding' || state.phase === 'estimating' || state.phase === 'playing'
+  const inHand = inHandPhase(state.phase)
   const idleLimitS = Number(state.idleNs / 1_000_000_000n)
   const currentIsHuman = seats.some((s) => Number(s.seat) === current && s.seated && !s.isBot)
-  const canNudge = inHand && mySeat >= 0 && !myTurn && currentIsHuman && idleFor >= idleLimitS
+  const canNudge = inHand && mySeat >= 0 && !myTurn && !stage && currentIsHuman && idleFor >= idleLimitS
 
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-4">
@@ -96,20 +181,20 @@ export function Table() {
           )}
           {inHand && <SuitChip label={`Trump: ${trumpLabel}`} />}
         </div>
-        <button className="text-ink-soft hover:text-ink" onClick={() => act(() => closeTable(tableId))}>Close</button>
+        <button className="text-ink-soft hover:text-ink" onClick={() => move(() => closeTable(tableId))}>Close</button>
       </div>
 
       {/* The felt: seats on the edges, the trick in the middle */}
       <div className="relative grid flex-1 grid-cols-3 grid-rows-3 gap-2 rounded-3xl gold-ring p-3">
-        <div /> <Seat s={seatAt(2)} cur={current} state={state} throwFrom={2} onAddBot={() => act(() => addBot(tableId))} /> <div />
-        <Seat s={seatAt(1)} cur={current} state={state} throwFrom={1} onAddBot={() => act(() => addBot(tableId))} />
-        <Center state={state} seats={seats} onStart={() => act(() => startHand(tableId))} rel={rel} />
-        <Seat s={seatAt(3)} cur={current} state={state} throwFrom={3} onAddBot={() => act(() => addBot(tableId))} />
-        <div /> <Seat s={seatAt(0)} cur={current} state={state} throwFrom={0} me onAddBot={() => act(() => addBot(tableId))} /> <div />
+        <div /> <Seat s={seatAt(2)} cur={current} state={state} stage={stage} throwFrom={2} onAddBot={() => move(() => addBot(tableId))} /> <div />
+        <Seat s={seatAt(1)} cur={current} state={state} stage={stage} throwFrom={1} onAddBot={() => move(() => addBot(tableId))} />
+        <Center state={state} seats={seats} stage={stage} onStart={() => move(() => startHand(tableId))} />
+        <Seat s={seatAt(3)} cur={current} state={state} stage={stage} throwFrom={3} onAddBot={() => move(() => addBot(tableId))} />
+        <div /> <Seat s={seatAt(0)} cur={current} state={state} stage={stage} throwFrom={0} me onAddBot={() => move(() => addBot(tableId))} /> <div />
 
         {/* Match over: the flourish */}
         <AnimatePresence>
-          {state.phase === 'matchover' && (
+          {state.phase === 'matchover' && !stage && (
             <motion.div
               className="absolute inset-0 z-10 grid place-items-center overflow-hidden rounded-3xl bg-black/60 backdrop-blur-sm"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -138,12 +223,8 @@ export function Table() {
                     <p key={s.seat.toString()}>{s.name}: {s.score.toString()} pts</p>
                   ))}
                 </div>
-                {/* the contract awards a tied score to the earliest seat — say so */}
-                {state.game === 'estimation' && seats.filter((s) => s.score === seats[Number(state.winnerSeat)]?.score).length > 1 && (
-                  <p className="mt-2 text-xs italic text-ink-soft">a tied diwan goes to the elder seat — house rule</p>
-                )}
                 <div className="mt-5 flex justify-center gap-3">
-                  <Button onClick={() => act(() => rematch(tableId))}>Rematch</Button>
+                  <Button onClick={() => move(() => rematch(tableId))}>Rematch</Button>
                   <Link to="/"><Button variant="ghost">Back to the lobby</Button></Link>
                 </div>
               </motion.div>
@@ -156,11 +237,13 @@ export function Table() {
       <div className="mt-3">
         {actErr && <div className="mb-2"><ErrorNote message={actErr} /></div>}
         {err && !state && <ErrorNote message={err} />}
-        <Controls state={state} hand={hand} myTurn={myTurn} act={act} tableId={tableId} seats={seats} />
+        {stage
+          ? <p className="py-6 text-center text-sm text-ink-soft" role="status">the round plays out…</p>
+          : <Controls state={state} hand={hand} myTurn={myTurn} move={move} tableId={tableId} seats={seats} />}
         {canNudge && (
           <p className="mt-2 text-center text-xs text-ink-soft">
             {seats.find((s) => Number(s.seat) === current)?.name} has been away {idleFor}s —{' '}
-            <button className="text-[var(--color-gold)] underline" onClick={() => act(() => nudge(tableId))}>
+            <button className="text-[var(--color-gold)] underline" onClick={() => move(() => nudge(tableId))}>
               let the house play their turn
             </button>
           </p>
@@ -179,11 +262,15 @@ export function Table() {
   )
 }
 
-function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
-  s?: SeatRow; cur: number; state: GameState; throwFrom: number; me?: boolean; onAddBot: () => void
+function Seat({ s, cur, state, stage, throwFrom, me = false, onAddBot }: {
+  s?: SeatRow; cur: number; state: GameState; stage: Stage | null; throwFrom: number; me?: boolean; onAddBot: () => void
 }) {
-  const isCurrent = s && Number(s.seat) === cur && state.phase !== 'seating' && state.phase !== 'done' && state.phase !== 'matchover'
-  const played = s && Number(s.played) >= 0 ? Number(s.played) : undefined
+  const seatIdx = s ? Number(s.seat) : -1
+  const isCurrent = !stage && s && seatIdx === cur && state.phase !== 'seating' && state.phase !== 'done' && state.phase !== 'matchover'
+  const isWinner = !!stage && stage.winner === seatIdx
+  // During a replay the felt is driven by the stage; otherwise by the live view.
+  const played = stage ? (seatIdx >= 0 ? stage.felt[seatIdx] : -1)
+    : (s && Number(s.played) >= 0 ? Number(s.played) : -1)
   const canInvite = state.phase === 'seating' && Number(state.mySeat) >= 0
   return (
     <div className="flex flex-col items-center justify-center gap-1.5">
@@ -200,7 +287,7 @@ function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
         )
       ) : (
         <>
-          <div className={`rounded-full px-3 py-1 text-sm ${isCurrent ? 'turn-glow bg-[var(--color-gold)] font-bold text-[#3a2a08]' : 'bg-black/25 text-ink'}`}>
+          <div className={`rounded-full px-3 py-1 text-sm ${isCurrent ? 'turn-glow bg-[var(--color-gold)] font-bold text-[#3a2a08]' : isWinner ? 'trick-win bg-[var(--color-gold)] font-bold text-[#3a2a08]' : 'bg-black/25 text-ink'}`}>
             {s.isBot && <span aria-hidden>⌂ </span>}
             {s.name || 'Player'}{me ? ' (you)' : ''}
           </div>
@@ -211,7 +298,7 @@ function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
           </div>
           {/* their remaining cards, face down — the table reads as a game at
               a glance (count from the same view the oracle audits) */}
-          {!me && inHand(state.phase) && Number(s.cardsLeft) > 0 && (
+          {!me && inHandPhase(state.phase) && Number(s.cardsLeft) > 0 && (
             <div className="flex" aria-label={`${s.name} holds ${s.cardsLeft} cards`}>
               {Array.from({ length: Number(s.cardsLeft) }, (_, j) => (
                 <div key={j} style={{
@@ -227,7 +314,7 @@ function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
           {/* their card for this trick, thrown in from their side */}
           <div className="h-16">
             <AnimatePresence>
-              {played !== undefined && (
+              {played >= 0 && (
                 <motion.div
                   key={played}
                   initial={{ x: THROW_FROM[throwFrom].x * 0.4, y: THROW_FROM[throwFrom].y * 0.4, opacity: 0, rotate: throwFrom % 2 ? -12 : 12 }}
@@ -246,11 +333,23 @@ function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
   )
 }
 
-function Center({ state, seats, onStart, rel }: {
-  state: GameState; seats: SeatRow[]; onStart: () => void; rel: (s: number) => number
+function Center({ state, seats, stage, onStart }: {
+  state: GameState; seats: SeatRow[]; stage: Stage | null; onStart: () => void
 }) {
   const seatedCount = seats.filter((s) => s.seated).length
-  void rel
+  if (stage) {
+    return (
+      <div className="grid place-items-center">
+        {stage.caption && (
+          <motion.p
+            key={stage.caption}
+            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+            className="max-w-[200px] text-center text-sm font-medium text-[var(--color-gold)]"
+          >{stage.caption}</motion.p>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="grid place-items-center">
       {state.phase === 'seating' ? (
@@ -278,60 +377,99 @@ function Center({ state, seats, onStart, rel }: {
   )
 }
 
-function Controls({ state, hand, myTurn, act, tableId, seats }: {
-  state: GameState; hand: number[]; myTurn: boolean; act: (fn: () => Promise<unknown>) => void; tableId: bigint; seats: SeatRow[]
+// Suit codes high→low for the bid picker: NT beats spades beats … beats clubs.
+const SUIT_PICK = [4, 3, 2, 1, 0]
+
+function Controls({ state, hand, myTurn, move, tableId, seats }: {
+  state: GameState; hand: number[]; myTurn: boolean; move: (fn: () => Promise<unknown>) => void; tableId: bigint; seats: SeatRow[]
 }) {
-  const [bidNum, setBidNum] = useState(0)
-  const [bidSuit, setBidSuit] = useState(4)
+  const [pick, setPick] = useState<number | null>(null)   // card selected to play
+  const [bidLevel, setBidLevel] = useState<number | null>(null)
+  const [bidSuit, setBidSuit] = useState<number | null>(null)
+  const [estPick, setEstPick] = useState<number | null>(null)
   const min = state.game === 'tarneeb' ? 7 : 4
   const leadSuit = Number(state.leadSuit)
   const sorted = useMemo(() => [...hand].sort((a, b) => a - b), [hand])
 
-  // Your hand is always visible during a hand — a real fan, playable on your turn.
-  const handFan = (playable: boolean) => {
-    const haveLead = leadSuit >= 0 && hand.some((c) => suitOf(c) === leadSuit)
-    return (
-      <div className="flex items-end justify-center py-3" aria-label="your hand">
-        {sorted.map((c, i) => {
-          const legal = playable && (leadSuit < 0 || suitOf(c) === leadSuit || !haveLead)
-          const rot = (i - (sorted.length - 1) / 2) * 4
-          return (
-            <div key={c} style={{ transform: `rotate(${rot}deg)`, transformOrigin: '50% 120%', marginLeft: i ? -18 : 0 }}>
-              <Card
-                card={c} w={62}
-                onClick={legal ? () => act(() => playCard(tableId, c)) : undefined}
-                disabled={playable && !legal}
-                playable={legal}
-              />
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
+  // Clear any half-made selection whenever it stops being our turn / phase moves.
+  useEffect(() => { if (!myTurn) { setPick(null); setBidLevel(null); setBidSuit(null); setEstPick(null) } }, [myTurn, state.phase, state.eventSeq])
+
+  const haveLead = leadSuit >= 0 && hand.some((c) => suitOf(c) === leadSuit)
+  const isLegalCard = (c: number) => leadSuit < 0 || !haveLead || suitOf(c) === leadSuit
+
+  // The hand fan. During play you TAP a card to select it (it lifts and rings);
+  // an explicit Confirm bar then plays it — no accidental throws.
+  const handFan = (selectable: boolean) => (
+    <div className="flex items-end justify-center py-3" aria-label="your hand">
+      {sorted.map((c, i) => {
+        const legal = selectable && isLegalCard(c)
+        const rot = (i - (sorted.length - 1) / 2) * 4
+        return (
+          <div key={c} style={{ transform: `rotate(${rot}deg)`, transformOrigin: '50% 120%', marginLeft: i ? -18 : 0 }}>
+            <Card
+              card={c} w={62}
+              onClick={legal ? () => setPick((p) => (p === c ? null : c)) : undefined}
+              disabled={selectable && !legal}
+              selected={pick === c}
+              playable={legal}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
 
   if (state.phase === 'bidding') {
     if (!myTurn) return handFan(false)
-    const n = Math.max(min, bidNum || min)
+    const standingN = Number(state.bidNumber)
+    const standingS = Number(state.bidSuitRank)
+    const beats = (n: number, s: number) => standingN === 0 || n > standingN || (n === standingN && s > standingS)
+    const chosenLegal = bidLevel !== null && bidSuit !== null && beats(bidLevel, bidSuit)
+    // A level is offerable only if SOME suit at that level can beat the standing bid.
+    const levelOffers = (n: number) => SUIT_PICK.some((s) => beats(n, s))
     return (
       <>
-        <Panel className="flex flex-wrap items-center justify-center gap-3">
-          <span className="text-sm font-medium">Your bid</span>
-          <div className="inline-flex items-center rounded-lg ring-1 ring-[var(--color-gold)]/30">
-            <button className="px-3 py-1.5 text-lg" onClick={() => setBidNum(Math.max(min, n - 1))} aria-label="Lower bid">−</button>
-            <span className="w-8 text-center nums">{n}</span>
-            <button className="px-3 py-1.5 text-lg" onClick={() => setBidNum(Math.min(13, n + 1))} aria-label="Raise bid">+</button>
+        <Panel className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium">Your bid</span>
+            {standingN > 0 && <span className="text-xs text-ink-soft">to beat: <b className="text-ink">{standingN} {SUIT_NAME[standingS]}</b></span>}
           </div>
-          <div className="flex gap-1">
-            {[4, 3, 2, 1, 0].map((sr) => (
-              <button key={sr} onClick={() => setBidSuit(sr)}
-                className={`rounded-md px-2 py-1 text-sm ${bidSuit === sr ? 'bg-[var(--color-gold)] text-[#3a2a08]' : 'bg-black/20'} ${sr === 1 || sr === 2 ? 'text-[var(--color-card-red)]' : ''}`}>
-                {sr === 4 ? 'NT' : SUIT_SYMBOL[sr]}
-              </button>
-            ))}
+          <div>
+            <p className="mb-1 text-xs text-ink-soft">how many tricks you contract</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Array.from({ length: 13 - min + 1 }, (_, k) => min + k).map((n) => {
+                const offer = levelOffers(n)
+                return (
+                  <button key={n} disabled={!offer}
+                    onClick={() => { setBidLevel(n); if (bidSuit !== null && !beats(n, bidSuit)) setBidSuit(null) }}
+                    className={`h-9 w-9 rounded-lg nums transition ${bidLevel === n ? 'bg-[var(--color-gold)] text-[#3a2a08] font-bold' : 'bg-black/20 hover:bg-black/30'} disabled:opacity-25`}>
+                    {n}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <Button onClick={() => act(() => bid(tableId, n, bidSuit))}>Bid</Button>
-          <Button variant="ghost" onClick={() => act(() => passBid(tableId))}>Pass</Button>
+          <div>
+            <p className="mb-1 text-xs text-ink-soft">trump suit</p>
+            <div className="flex gap-1.5">
+              {SUIT_PICK.map((sr) => {
+                const dim = bidLevel !== null && !beats(bidLevel, sr)
+                return (
+                  <button key={sr} disabled={dim} onClick={() => setBidSuit(sr)}
+                    className={`h-9 min-w-9 rounded-lg px-2 text-base transition ${bidSuit === sr ? 'bg-[var(--color-gold)] text-[#3a2a08] font-bold' : 'bg-black/20 hover:bg-black/30'} ${(sr === 1 || sr === 2) && bidSuit !== sr ? 'text-[var(--color-card-red)]' : ''} disabled:opacity-25`}>
+                    {sr === 4 ? 'NT' : SUIT_SYMBOL[sr]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <Button disabled={!chosenLegal}
+              onClick={() => chosenLegal && move(() => bid(tableId, bidLevel!, bidSuit!))}>
+              {chosenLegal ? `Confirm bid ${bidLevel} ${SUIT_NAME[bidSuit!]}` : 'Pick a bid'}
+            </Button>
+            <Button variant="ghost" onClick={() => move(() => passBid(tableId))}>Pass</Button>
+          </div>
         </Panel>
         {handFan(false)}
       </>
@@ -347,15 +485,22 @@ function Controls({ state, hand, myTurn, act, tableId, seats }: {
     return (
       <>
         <Panel className="text-center">
-          <p className="text-sm">How many tricks will you take? <span className="text-ink-soft">(0–{max})</span></p>
+          <p className="text-sm">How many tricks will you take? <span className="text-ink-soft">(tap one, then confirm — 0–{max})</span></p>
           <div className="mt-2 flex flex-wrap justify-center gap-1.5">
             {Array.from({ length: max + 1 }, (_, v) => {
               const forbidden = isLast && others + v === 13 // Σ ≠ 13
-              return <button key={v} disabled={forbidden} onClick={() => act(() => estimate(tableId, v))}
-                className="h-9 w-9 rounded-lg bg-black/20 nums hover:bg-[var(--color-gold)] hover:text-[#3a2a08] disabled:opacity-30 disabled:hover:bg-black/20 disabled:hover:text-ink">{v}</button>
+              return (
+                <button key={v} disabled={forbidden} onClick={() => setEstPick((p) => (p === v ? null : v))}
+                  className={`h-10 w-10 rounded-lg nums transition ${estPick === v ? 'bg-[var(--color-gold)] text-[#3a2a08] font-bold ring-2 ring-[var(--color-gold)]' : 'bg-black/20 hover:bg-black/30'} disabled:opacity-25 disabled:hover:bg-black/20`}>{v}</button>
+              )
             })}
           </div>
           {isLast && <p className="mt-2 text-xs text-ink-soft">The four calls can't total 13 — that number is barred.</p>}
+          <div className="mt-3">
+            <Button disabled={estPick === null} onClick={() => estPick !== null && move(() => estimate(tableId, estPick))}>
+              {estPick === null ? 'Pick your call' : `Confirm — call ${estPick}`}
+            </Button>
+          </div>
         </Panel>
         {handFan(false)}
       </>
@@ -366,6 +511,22 @@ function Controls({ state, hand, myTurn, act, tableId, seats }: {
     return (
       <>
         {!myTurn && <p className="text-center text-xs text-ink-soft">waiting for the table…</p>}
+        {myTurn && (
+          <AnimatePresence>
+            {pick !== null && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                className="flex items-center justify-center gap-2"
+              >
+                <Button onClick={() => move(() => playCard(tableId, pick))}>▶ Play the {cardName(pick)}</Button>
+                <Button variant="ghost" onClick={() => setPick(null)}>✕ pick another</Button>
+              </motion.div>
+            )}
+            {pick === null && (
+              <p className="text-center text-xs text-ink-soft">your turn — tap a card to play it</p>
+            )}
+          </AnimatePresence>
+        )}
         {handFan(myTurn)}
       </>
     )
