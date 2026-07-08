@@ -9,7 +9,7 @@ import { CARDS_CID } from './config'
 export interface GameState {
   game: string; phase: string; dealer: bigint; current: bigint; trump: bigint
   bidNumber: bigint; bidSuitRank: bigint; declarer: bigint; handNumber: bigint; matchHands: bigint
-  mySeat: bigint; leadSuit: bigint; winnerSeat: bigint; version: bigint
+  mySeat: bigint; leadSuit: bigint; winnerSeat: bigint; version: bigint; eventSeq: bigint
   lastMoveAt: bigint; nowNs: bigint; idleNs: bigint
 }
 export interface SeatRow {
@@ -17,7 +17,7 @@ export interface SeatRow {
   tricksWon: bigint; score: bigint; played: bigint; cardsLeft: bigint
 }
 export interface OpenTable { id: bigint; game: string; seatsTaken: bigint; bots: bigint; phase: string; handNumber: bigint }
-export interface TableEvent { at: bigint; seat: bigint; kind: string; detail: string }
+export interface TableEvent { at: bigint; seat: bigint; kind: string; detail: string; card: bigint }
 export interface LeaderRow { name: string; games: bigint; wins: bigint; points: bigint }
 export interface Conservation { tablesChecked: bigint; violations: bigint; liveGames: bigint; checkedAt: bigint }
 export interface Violation { rule: string; expected: bigint; actual: bigint }
@@ -30,7 +30,7 @@ const bool = (name: string) => ({ name, type: 'bool' as const })
 const STATE_FIELDS = [
   text('game'), text('phase'), nat('dealer'), nat('current'), nat('trump'),
   nat('bidNumber'), nat('bidSuitRank'), nat('declarer'), nat('handNumber'), nat('matchHands'),
-  int('mySeat'), int('leadSuit'), int('winnerSeat'), nat('version'),
+  int('mySeat'), int('leadSuit'), int('winnerSeat'), nat('version'), nat('eventSeq'),
   int('lastMoveAt'), int('nowNs'), int('idleNs'),
 ]
 const SEAT_FIELDS = [
@@ -39,7 +39,7 @@ const SEAT_FIELDS = [
 ]
 const HAND_FIELDS = [nat('card')]
 const OPEN_FIELDS = [nat('id'), text('game'), nat('seatsTaken'), nat('bots'), text('phase'), nat('handNumber')]
-const EVENT_FIELDS = [int('at'), int('seat'), text('kind'), text('detail')]
+const EVENT_FIELDS = [int('at'), int('seat'), text('kind'), text('detail'), int('card')]
 const LEADER_FIELDS = [text('name'), nat('games'), nat('wins'), int('points')]
 const CONSERVATION_FIELDS = [nat('tablesChecked'), nat('violations'), nat('liveGames'), int('checkedAt')]
 const VIOLATION_FIELDS = [text('rule'), nat('expected'), nat('actual')]
