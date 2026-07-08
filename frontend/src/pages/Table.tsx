@@ -36,6 +36,8 @@ function useTable(id: bigint) {
   return { state, seats, hand, events, err, refresh }
 }
 
+const inHand = (phase: string) => phase === 'bidding' || phase === 'estimating' || phase === 'playing'
+
 // Where each relative seat sits on screen (used to throw cards from the right
 // direction into the trick).
 const THROW_FROM = [
@@ -203,6 +205,21 @@ function Seat({ s, cur, state, throwFrom, me = false, onAddBot }: {
             {(state.phase === 'estimating' || state.phase === 'playing' || state.phase === 'done') && Number(s.estimate) >= 0 && <span>· called {s.estimate.toString()}</span>}
             <span>· {s.score.toString()} pts</span>
           </div>
+          {/* their remaining cards, face down — the table reads as a game at
+              a glance (count from the same view the oracle audits) */}
+          {!me && inHand(state.phase) && Number(s.cardsLeft) > 0 && (
+            <div className="flex" aria-label={`${s.name} holds ${s.cardsLeft} cards`}>
+              {Array.from({ length: Number(s.cardsLeft) }, (_, j) => (
+                <div key={j} style={{
+                  marginLeft: j ? -14 : 0,
+                  transform: `rotate(${(j - (Number(s.cardsLeft) - 1) / 2) * 3}deg)`,
+                  transformOrigin: '50% 130%',
+                }}>
+                  <Card back w={22} />
+                </div>
+              ))}
+            </div>
+          )}
           {/* their card for this trick, thrown in from their side */}
           <div className="h-16">
             <AnimatePresence>
