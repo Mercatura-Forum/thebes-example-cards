@@ -1,9 +1,13 @@
 @import 'tailwindcss';
+/* Display = Bricolage Grotesque; body = Geist. Bundled — self-contained. */
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/geist';
 
 /* ── Majlis (Estimation + Tarneeb) design tokens ──
-   A real card table: deep emerald felt, brass/gold trim, ivory cards. Distinct
-   from every other example. Cards are CSS-rendered (crisp at any size, no asset
-   files); the felt + gold + card faces carry the polish. */
+   A real card salon: deep emerald felt under lamplight, brass trim, ivory
+   cards. Cards are CSS-rendered (crisp at any size, no asset files); the felt,
+   the brass and the card faces carry the polish. The card BACK wears the
+   girih star — the same tile the fleet draws for its on-chain artwork. */
 @theme {
   --color-ink: #f3efe2;        /* ivory text on felt */
   --color-ink-soft: #c9c2ad;
@@ -15,10 +19,11 @@
   --color-accent: #d8b15a;     /* shared MemphisGate accent (alias of gold) */
   --color-card: #fbfaf6;       /* card face */
   --color-card-red: #c0392b;
-  --color-card-black: #1a1a1a;
+  --color-card-black: #22222a;
+  --color-leaf: #79d29a;       /* audited/ok on felt */
 
-  --font-display: 'Georgia', 'Times New Roman', serif;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 html, body, #root { height: 100%; }
@@ -30,7 +35,7 @@ body {
   background:
     radial-gradient(120% 90% at 50% 0%, #0e7048 0%, var(--color-felt) 45%, var(--color-felt-deep) 100%) fixed;
 }
-.font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
+.font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
 .nums { font-variant-numeric: tabular-nums; }
 
 /* ── Playing card (CSS-rendered face) ── */
@@ -52,14 +57,57 @@ body {
 .pcard .mid { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.1em; opacity: .9; }
 .pcard.red { color: var(--color-card-red); }
 .pcard.black { color: var(--color-card-black); }
+/* The back: a brass girih star on deep felt-green lacquer. */
 .pcard.back {
   background:
-    repeating-linear-gradient(45deg, #b9933f 0 6px, #a07f33 6px 12px);
-  box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 2px var(--color-card), inset 0 0 0 3px #8a6a22;
+    radial-gradient(circle at 50% 50%, rgba(216,177,90,.28) 0 12%, transparent 13%),
+    conic-gradient(from 22.5deg,
+      #0e6a43 0deg 45deg, #0a4f32 45deg 90deg, #0e6a43 90deg 135deg, #0a4f32 135deg 180deg,
+      #0e6a43 180deg 225deg, #0a4f32 225deg 270deg, #0e6a43 270deg 315deg, #0a4f32 315deg 360deg);
+  box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 2px var(--color-card), inset 0 0 0 3px var(--color-gold-ink);
 }
+.pcard.back::after {
+  content: '✦';
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--color-gold);
+  font-size: 1.4em;
+  text-shadow: 0 0 10px rgba(216,177,90,.5);
+}
+
+/* Legal cards lift on hover; playing throws them to the felt. */
+.pcard.playable { cursor: pointer; transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; }
+.pcard.playable:hover { transform: translateY(-14px); box-shadow: 0 14px 22px rgba(0,0,0,.4); }
 
 .felt-panel { background: rgba(7,61,39,.55); border: 1px solid rgba(216,177,90,.25); border-radius: 16px; backdrop-filter: blur(4px); }
 .gold-ring { box-shadow: inset 0 0 0 1px rgba(216,177,90,.4); }
 
+/* The current seat breathes brass. */
+@keyframes turn-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(216,177,90,.55); }
+  60% { box-shadow: 0 0 0 9px rgba(216,177,90,0); }
+}
+.turn-glow { animation: turn-pulse 1.6s ease-out infinite; }
+
+/* Hero deal-in: cards arc out of the deck on page load. */
+@keyframes deal-in {
+  from { opacity: 0; transform: translateY(26px) rotate(0deg) scale(.7); }
+  to { opacity: 1; transform: translateY(0) rotate(var(--deal-rot, 0deg)) scale(1); }
+}
+.deal-in { opacity: 0; animation: deal-in .55s cubic-bezier(.2,.9,.25,1.2) forwards; }
+
+/* Match-won flourish: brass confetti squares raining inside the overlay. */
+@keyframes confetti-fall {
+  from { transform: translateY(-40px) rotate(0deg); opacity: 1; }
+  to { transform: translateY(340px) rotate(540deg); opacity: 0; }
+}
+.confetti { position: absolute; top: 0; width: 8px; height: 12px; border-radius: 2px; animation: confetti-fall 2.6s linear infinite; }
+
+@keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.rise { opacity: 0; animation: rise-in .5s cubic-bezier(.2,.8,.2,1) forwards; }
+
 :focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .deal-in, .rise { opacity: 1; }
+}
