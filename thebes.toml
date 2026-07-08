@@ -15,13 +15,13 @@ routing = "smart"
 
 [canisters.cards]
 type = "backend-motoko"
-cid = "auto"
+cid = 92881495833199
 wasm = "build/cards.wasm"
 build = 'cd motoko && mops install >/dev/null 2>&1 && mkdir -p ../build && MOC="$(ls "$HOME/.cache/mops/moc/1.4.1/moc" "$HOME/Library/Caches/mops/moc/1.4.1/moc" 2>/dev/null | head -1)" && "$MOC" $(mops sources) -o ../build/cards.wasm main.mo'
 
 [canisters.web]
 type = "frontend"
-cid = "auto"
+cid = 185079164137313
 wasm = "asset_canister.wasm"
 bundle = "frontend/dist"
 health_check_url = "/index.html"
