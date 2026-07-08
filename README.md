@@ -35,17 +35,31 @@ contract and a trump suit, then play tricks. **Estimation**: a bidding round set
 the declarer and trump, then each player estimates the tricks they will win
 (constrained so the table's estimates never sum to 13), then play.
 
+A match is five hands; the highest score (team score in Tarneeb) takes the diwan,
+and a rematch resets the same seats. Any open seat can be filled with a **house
+bot** — bots act inside the same message as your move, through the same validated
+move core, so the house cannot cheat any more than a player can. An all-pass
+auction falls to the dealer's burden (minimum bid in their longest suit), an idle
+human seat can be nudged after the grace window, and lifetime results land in the
+on-chain leaderboard.
+
+The property this example proves is **card conservation under enforced rules**:
+at any moment of any game, 52 cards are accounted across hands, the current trick
+and taken tricks, no card exists in two places, and the tricks and estimates laws
+hold — recomputable by anyone through the public oracle (`invariantReportView`).
+
 ## Backend interface (selected)
 
 | Method | Kind | Purpose |
 | --- | --- | --- |
-| `openTables` | query | List joinable tables. |
-| `createTable` / `joinTable` / `closeTable` | update | Table lifecycle; the creator takes seat 0. |
-| `startHand` | update | Shuffle from `raw_rand` and deal four 13-card hands. |
-| `bid` / `passBid` | update | Bidding round (sets declarer + trump). |
-| `estimate` | update | Estimation: declare tricks (rejected if it is not the estimating phase). |
-| `playCard` | update | Play a card on your turn. |
-| `gameStateView` / `seatsView` / `myHandView` | query | Read table, seats, and your own hand. |
+| `openTables` | query | List tables — joinable and in play. |
+| `createTable` / `joinTable` / `addBot` / `closeTable` | update | Table lifecycle; the creator takes seat 0; `addBot` seats the house. |
+| `startHand` / `rematch` | update | Shuffle from `raw_rand` and deal; reset the diwan after a match. |
+| `bid` / `passBid` / `estimate` / `playCard` | update | The validated move core — turn order, bid legality, follow-suit, the sum-not-13 law. |
+| `nudge` | update | After the idle window, the house plays a stalled human seat's turn. |
+| `gameStateView` / `seatsView` / `myHandView` / `tableEventsView` | query | Table, seats, your hand, and the table's story. |
+| `leaderboardView` / `myStatsView` | query | Lifetime results, kept by the contract. |
+| `invariantReportView` / `conservationView` | query | **The public oracle** — 52 cards accounted, no duplicates, tricks + estimates laws. |
 | `claimOwner` / `getOwner` | update / query | Ownership surface (from `thebes-lib`'s `Admin`). |
 
 Card ids are `0..51`: `suit = id/13` (0♣ 1♦ 2♥ 3♠), `rank = id%13` (0=2 … 12=A);
