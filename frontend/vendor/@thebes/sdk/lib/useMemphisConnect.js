@@ -25,7 +25,7 @@
  * Requires `memphis-connect.js` loaded as a <script> tag (see the README).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { getSession, signIn as doSignIn, signOut as doSignOut, resumeFromRedirect, onSessionChange, } from './session.js';
+import { signIn as doSignIn, signOut as doSignOut, resumeFromRedirect, onSessionChange, ensureSession, } from './session.js';
 /**
  * @param app     The name shown to the person in the connect window, and the key
  *                this app's session is stored under. Keep it stable across
@@ -38,18 +38,33 @@ export function useMemphisConnect(app, legacy = []) {
     const [session, setSession] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState();
+    const cleanup = useState(() => ({}))[0];
     useEffect(() => {
         // Order matters. A redirect-mode return arrives in the URL fragment and must
         // be consumed on this load — resumeFromRedirect also strips the fragment, so
         // a token is never left in the address bar. Only if there is nothing to
         // collect do we fall back to a session held from an earlier visit.
-        try {
-            setSession(resumeFromRedirect() ?? getSession(app, legacy));
+        const returned = (() => { try {
+            return resumeFromRedirect();
         }
-        catch { /* memphis-connect.js not present yet */ }
+        catch {
+            return null;
+        } })();
+        if (returned)
+            setSession(returned);
+        else {
+            // Renew silently if the access token has lapsed. This is what makes a
+            // week-old tab work without a passkey prompt; `getSession` alone would
+            // show the sign-in button to someone who never actually signed out.
+            let cancelled = false;
+            ensureSession(app, legacy).then((s) => { if (!cancelled)
+                setSession(s); });
+            cleanup.fn = () => { cancelled = true; };
+        }
         // Another tab signing out should not leave this one holding a token it has
         // forgotten, and another tab signing in should fill this one in.
-        return onSessionChange(app, setSession);
+        const unsubscribe = onSessionChange(app, setSession);
+        return () => { cleanup.fn?.(); unsubscribe(); };
         // `legacy` is a config array, not state; re-running on a new array identity
         // would re-adopt on every render.
         // eslint-disable-next-line react-hooks/exhaustive-deps

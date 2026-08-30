@@ -135,6 +135,37 @@ export function signOut(app, legacy = []) {
     }
 }
 /**
+ * The live session, renewing it silently first if the access token has lapsed.
+ *
+ * This is the call that keeps someone signed in for weeks. An access token is
+ * good for 30 minutes; the refresh credential behind it is good for far longer,
+ * and exchanging it needs no window, no gesture and no passkey prompt. Prefer
+ * this over `getSession` anywhere an await is possible — `getSession` is the
+ * synchronous best-effort view, this is the truthful one.
+ *
+ * Returns null only when there is genuinely nothing left, at which point the
+ * person has to sign in properly.
+ *
+ * Silent renewal additionally needs `passkey.js` loaded, since it owns the
+ * Memphis transport. Without it this degrades to `getSession` rather than
+ * failing — sign-in still works, it just stops being durable.
+ */
+export async function ensureSession(app, legacy = []) {
+    const held = getSession(app, legacy);
+    if (isLive(held))
+        return held;
+    try {
+        const r = runtime().renew;
+        if (!r)
+            return null;
+        const renewed = await r(app);
+        return isLive(renewed) ? renewed : null;
+    }
+    catch {
+        return null;
+    }
+}
+/**
  * Watch for this site's session changing in ANOTHER tab, and react.
  *
  * The `storage` event fires only in other documents of the same origin, which

@@ -119,6 +119,23 @@ export declare function signIn(app: string, opts?: ConnectOptions): Promise<Conn
  */
 export declare function signOut(app: string, legacy?: LegacySessionKey[]): void;
 /**
+ * The live session, renewing it silently first if the access token has lapsed.
+ *
+ * This is the call that keeps someone signed in for weeks. An access token is
+ * good for 30 minutes; the refresh credential behind it is good for far longer,
+ * and exchanging it needs no window, no gesture and no passkey prompt. Prefer
+ * this over `getSession` anywhere an await is possible — `getSession` is the
+ * synchronous best-effort view, this is the truthful one.
+ *
+ * Returns null only when there is genuinely nothing left, at which point the
+ * person has to sign in properly.
+ *
+ * Silent renewal additionally needs `passkey.js` loaded, since it owns the
+ * Memphis transport. Without it this degrades to `getSession` rather than
+ * failing — sign-in still works, it just stops being durable.
+ */
+export declare function ensureSession(app: string, legacy?: LegacySessionKey[]): Promise<ConnectSession | null>;
+/**
  * Watch for this site's session changing in ANOTHER tab, and react.
  *
  * The `storage` event fires only in other documents of the same origin, which
