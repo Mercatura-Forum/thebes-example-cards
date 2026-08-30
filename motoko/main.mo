@@ -61,7 +61,11 @@ persistent actor Cards {
   public type Game = { #estimation; #tarneeb };
   public type Phase = { #seating; #bidding; #estimating; #playing; #done; #matchover };
 
-  type Event = { at : Int; seat : Int; kind : Text; detail : Text };
+  // `card` is the played card id (0..51) for "card.play" events, else -1. It lets
+  // the frontend replay a trick faithfully (which seat played which card, in order)
+  // — the bots + trick resolution all run inside one message, so without this the
+  // SPA could only ever see the settled table, never the round being played out.
+  type Event = { at : Int; seat : Int; kind : Text; detail : Text; card : Int };
 
   // A table is a mutable object held in the Map (var fields persist in place).
   type Table = {
@@ -95,7 +99,14 @@ persistent actor Cards {
   };
 
   var nextTableId : Nat = 0;
-  let tables = Map.empty<Nat, Table>();
+  // `games` was renamed from `tables` to `sessions` in the trick-replay upgrade: adding the
+  // structured `card` field to Event made the old `tables` stable type
+  // memory-incompatible under EOP. Tables are EPHEMERAL (deleted after each
+  // session), so the upgrade drops them by renaming the stable variable — EOP
+  // discards the removed `tables` and initialises `sessions` fresh, while `stats`
+  // (the leaderboard) and `nextTableId` persist by name. No `with migration`
+  // needed for a clean, state-preserving-where-it-matters upgrade.
+  let sessions = Map.empty<Nat, Table>();
 
   // Lifetime results per human player (bots don't keep score in the book).
   type PlayerStats = { name : Text; games : Nat; wins : Nat; points : Int };
@@ -134,7 +145,7 @@ persistent actor Cards {
   };
 
   func getTable(id : Nat) : Table {
-    switch (Map.get(tables, Nat.compare, id)) { case (?t) t; case null { Runtime.trap("table not found") } };
+    switch (Map.get(sessions, Nat.compare, id)) { case (?t) t; case null { Runtime.trap("table not found") } };
   };
   func seatOf(t : Table, caller : Principal) : Int {
     var i = 0;
@@ -158,7 +169,11 @@ persistent actor Cards {
   func clearPlayed(t : Table) { var i = 0; while (i < 4) { t.played[i] := -1; i += 1 } };
 
   func logEvent(t : Table, seat : Int, kind : Text, detail : Text) {
-    List.add(t.events, { at = Time.now(); seat; kind; detail });
+    List.add(t.events, { at = Time.now(); seat; kind; detail; card = -1 });
+  };
+  // A card-play event, carrying the structured card id so the SPA can replay the trick.
+  func logPlay(t : Table, seat : Int, card : Nat, detail : Text) {
+    List.add(t.events, { at = Time.now(); seat; kind = "card.play"; detail; card = Nat.toInt(card) });
   };
   func touch(t : Table) { t.lastMoveAt := Time.now() };
 
@@ -184,7 +199,7 @@ persistent actor Cards {
     let t = newTable(id, game);
     t.seats[0] := ?msg.caller;
     t.names[0] := displayName;
-    Map.add(tables, Nat.compare, id, t);
+    Map.add(sessions, Nat.compare, id, t);
     logEvent(t, 0, "table.open", displayName # " opened the table");
     id
   };
@@ -241,7 +256,7 @@ persistent actor Cards {
   public shared(msg) func closeTable(tableId : Nat) : async () {
     let t = getTable(tableId);
     if (seatOf(t, msg.caller) < 0 and not Admin.isOwner(admin, msg.caller)) Runtime.trap("You are not at this table.");
-    ignore Map.take(tables, Nat.compare, tableId);
+    ignore Map.take(sessions, Nat.compare, tableId);
   };
 
   // ── Deal: shuffle from raw_rand (consensus beacon) → Fisher–Yates ──
@@ -419,7 +434,7 @@ persistent actor Cards {
     t.hands[seat] := Array.filter<Nat>(t.hands[seat], func(c) { c != card });
     t.playsThisTrick += 1;
     t.current := (t.current + 1) % 4;
-    logEvent(t, seat, "card.play", t.names[seat] # " plays the " # cardName(card));
+    logPlay(t, seat, card, t.names[seat] # " plays the " # cardName(card));
     touch(t);
     if (t.playsThisTrick == 4) resolveTrick(t);
   };
@@ -727,7 +742,7 @@ persistent actor Cards {
     tablesChecked : Nat; violations : Nat; liveGames : Nat; checkedAt : Int;
   }] {
     var checked = 0; var violations = 0; var live = 0;
-    for ((_, t) in Map.entries(tables)) {
+    for ((_, t) in Map.entries(sessions)) {
       checked += 1;
       if (t.phase == #playing or t.phase == #bidding or t.phase == #estimating) {
         live += 1;
@@ -751,16 +766,17 @@ persistent actor Cards {
   public shared query(msg) func gameStateView(tableId : Nat) : async [{
     game : Text; phase : Text; dealer : Nat; current : Nat; trump : Nat;
     bidNumber : Nat; bidSuitRank : Nat; declarer : Nat; handNumber : Nat; matchHands : Nat;
-    mySeat : Int; leadSuit : Int; winnerSeat : Int; version : Nat;
+    mySeat : Int; leadSuit : Int; winnerSeat : Int; version : Nat; eventSeq : Nat;
     lastMoveAt : Int; nowNs : Int; idleNs : Int;
   }] {
     let t = getTable(tableId);
-    let v = List.size(t.events) * 1000 + t.playsThisTrick * 10 + t.current;
+    let seq = List.size(t.events);
+    let v = seq * 1000 + t.playsThisTrick * 10 + t.current;
     [{
       game = gameText(t.game); phase = phaseText(t.phase); dealer = t.dealer; current = t.current;
       trump = t.trump; bidNumber = t.bidNumber; bidSuitRank = t.bidSuitRank; declarer = t.declarer;
       handNumber = t.handNumber; matchHands = MATCH_HANDS;
-      mySeat = seatOf(t, msg.caller); leadSuit = t.leadSuit; winnerSeat = t.winnerSeat; version = v;
+      mySeat = seatOf(t, msg.caller); leadSuit = t.leadSuit; winnerSeat = t.winnerSeat; version = v; eventSeq = seq;
       lastMoveAt = t.lastMoveAt; nowNs = Time.now(); idleNs = IDLE_NS;
     }]
   };
@@ -788,13 +804,15 @@ persistent actor Cards {
 
   // The table's story, newest first (bids, plays, tricks, scores).
   public query func tableEventsView(tableId : Nat, offset : Nat, limit : Nat) : async [{
-    at : Int; seat : Int; kind : Text; detail : Text;
+    at : Int; seat : Int; kind : Text; detail : Text; card : Int;
   }] {
     let t = getTable(tableId);
     let n = List.size(t.events);
     if (offset >= n) return [];
-    let take = Nat.min(Nat.min(limit, 50), n - offset);
-    let out = List.empty<{ at : Int; seat : Int; kind : Text; detail : Text }>();
+    // Cap generous enough that one message's worth of events (a full trick +
+    // the lead-up to the next human turn) fits in a single replay fetch.
+    let take = Nat.min(Nat.min(limit, 128), n - offset);
+    let out = List.empty<{ at : Int; seat : Int; kind : Text; detail : Text; card : Int }>();
     var i = 0;
     for (e in List.reverseValues(t.events)) {
       if (i >= offset and i < offset + take) { List.add(out, e) };
@@ -807,7 +825,7 @@ persistent actor Cards {
   public query func openTables() : async [{
     id : Nat; game : Text; seatsTaken : Nat; bots : Nat; phase : Text; handNumber : Nat;
   }] {
-    let arr = Map.toArray<Nat, Table>(tables);
+    let arr = Map.toArray<Nat, Table>(sessions);
     Array.map<(Nat, Table), { id : Nat; game : Text; seatsTaken : Nat; bots : Nat; phase : Text; handNumber : Nat }>(
       arr,
       func((_, t)) {

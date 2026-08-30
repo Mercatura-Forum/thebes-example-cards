@@ -1,6 +1,6 @@
 # @thebes/sdk
 
-The shared developer SDK for [Thebes Protocol](https://github.com/Mercatura-Forum/Thebes-Protocol-)
+The shared developer SDK for [Thebes Protocol](https://thebesprotocol.com)
 example dapps. One source of truth for the client toolkit and the Motoko backend
 library that every example used to copy into itself.
 

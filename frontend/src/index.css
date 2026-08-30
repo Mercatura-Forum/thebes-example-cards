@@ -78,6 +78,20 @@ body {
 /* Legal cards lift on hover; playing throws them to the felt. */
 .pcard.playable { cursor: pointer; transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; }
 .pcard.playable:hover { transform: translateY(-14px); box-shadow: 0 14px 22px rgba(0,0,0,.4); }
+/* A card the player has TAPPED to select — it lifts clear of the fan and wears a
+   brass ring, waiting for the explicit Confirm. Tap again (or Confirm) to play. */
+.pcard.chosen {
+  transform: translateY(-30px) scale(1.06);
+  box-shadow: 0 20px 30px rgba(0,0,0,.5), 0 0 0 2px var(--color-gold), 0 0 22px rgba(216,177,90,.55);
+  z-index: 30;
+}
+
+/* The seat that just took the trick, held for a beat during the replay. */
+@keyframes trick-take {
+  0% { box-shadow: 0 0 0 0 rgba(216,177,90,.7); }
+  100% { box-shadow: 0 0 0 14px rgba(216,177,90,0); }
+}
+.trick-win { animation: trick-take 1.1s ease-out; box-shadow: 0 0 0 3px var(--color-gold); }
 
 .felt-panel { background: rgba(7,61,39,.55); border: 1px solid rgba(216,177,90,.25); border-radius: 16px; backdrop-filter: blur(4px); }
 .gold-ring { box-shadow: inset 0 0 0 1px rgba(216,177,90,.4); }

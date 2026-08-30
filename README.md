@@ -1,7 +1,7 @@
 # thebes-example-cards
 
 Majlis — an on-chain card game (Estimation and Tarneeb) built on
-[Thebes Protocol](https://github.com/Mercatura-Forum/Thebes-Protocol-): a Motoko
+[Thebes Protocol](https://thebesprotocol.com): a Motoko
 backend that holds the table, the shuffled deck, and the full game state machine,
 and a React frontend served as certified assets. It demonstrates the shape of a
 Thebes application — passkey sign-in, controller-gated admin, protocol-randomness

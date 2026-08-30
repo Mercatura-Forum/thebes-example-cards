@@ -4,9 +4,9 @@ import { SUIT_SYMBOL, SUIT_RED, RANK_LABEL, suitOf, rankOf } from '../lib/config
  *  (or back) for a face-down card. Crisp at any width. `playable` lifts the
  *  card on hover and throws it on click. */
 export function Card({
-  card, back = false, w = 60, onClick, disabled = false, raised = false, playable = false,
+  card, back = false, w = 60, onClick, disabled = false, raised = false, playable = false, selected = false,
 }: {
-  card?: number; back?: boolean; w?: number; onClick?: () => void; disabled?: boolean; raised?: boolean; playable?: boolean
+  card?: number; back?: boolean; w?: number; onClick?: () => void; disabled?: boolean; raised?: boolean; playable?: boolean; selected?: boolean
 }) {
   const h = Math.round(w * 1.4)
   const style = { width: w, height: h, fontSize: Math.round(w * 0.26) }
@@ -17,7 +17,7 @@ export function Card({
   const r = rankOf(card)
   const sym = SUIT_SYMBOL[s]
   const interactive = !!onClick
-  const cls = `pcard ${SUIT_RED[s] ? 'red' : 'black'} ${playable && interactive && !disabled ? 'playable' : ''} ${raised ? '-translate-y-3' : ''} ${disabled ? 'opacity-40' : ''}`
+  const cls = `pcard ${SUIT_RED[s] ? 'red' : 'black'} ${playable && interactive && !disabled ? 'playable' : ''} ${selected ? 'chosen' : raised ? '-translate-y-3' : ''} ${disabled ? 'opacity-40' : ''}`
   const inner = (
     <>
       <span className="corner"><span>{RANK_LABEL[r]}</span><span>{sym}</span></span>
@@ -26,7 +26,8 @@ export function Card({
     </>
   )
   return interactive ? (
-    <button className={cls} style={style} onClick={onClick} disabled={disabled} aria-label={`${RANK_LABEL[r]} of ${['clubs','diamonds','hearts','spades'][s]}`}>{inner}</button>
+    <button className={cls} style={style} onClick={onClick} disabled={disabled} aria-pressed={selected}
+      aria-label={`${selected ? 'Selected, ' : ''}${RANK_LABEL[r]} of ${['clubs','diamonds','hearts','spades'][s]}`}>{inner}</button>
   ) : (
     <div className={cls} style={style}>{inner}</div>
   )
