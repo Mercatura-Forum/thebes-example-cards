@@ -27,6 +27,34 @@ Both halves are self-contained: the repository builds with no external Git or Mo
 toolkit pins. The frontend asset-canister wasm is the one artifact fetched at
 deploy time (see [Deploy](#deploy)).
 
+## Identity
+
+The header sign-in is a Memphis (contract **921**) **frontend gate**. It gives
+the UI a display name and nothing more: this example's backend authorises on
+`msg.caller` through `thebes-lib`'s `Admin`, and never verifies a Memphis
+session. No write here is gated by who you signed in as.
+
+That is correct for an owner-and-admin surface, which is what this example is.
+**It is not enough if you are copying this for anything user-scoped** — a
+balance, a profile, a document someone owns. For that, take the session token
+as a call argument and verify it on the backend:
+
+```motoko
+switch (await* MemphisAuth.verifyWithAudience(gate, token, AUDIENCE)) {
+  case (#ok(id)) { /* id.principal — key user state on this */ };
+  case (#err(_)) { /* refuse */ };
+};
+```
+
+`origin` on the gate is a pseudonym namespace and is frozen for the life of the
+app; `AUDIENCE` is the web origin you are served from, and it is the one line
+that changes when you move to your own domain. On your own domain the passkey
+ceremony cannot run in the page — a page may only claim a WebAuthn RP ID that is
+a registrable-domain suffix of its own origin — so use `<MemphisConnectGate>`
+from `@thebes/sdk`.
+
+Full guide, both halves: **[`docs/memphis.md`](https://github.com/Mercatura-Forum/thebes-sdk/blob/main/docs/memphis.md)**.
+
 ## Game
 
 Four seats per table. A hand is dealt from `raw_rand` — the protocol's randomness,
