@@ -9,8 +9,12 @@
  *
  * This hook is the way across that wall. The ceremony happens in a window at the
  * Memphis origin, which attenuates the master session into a token minted for
- * YOUR origin and hands back only that. Use this hook whenever your app is not
- * served from the Memphis origin — which is every app with a domain of its own.
+ * YOUR origin and hands back only that. Use it whenever your app is not served
+ * from the Memphis origin — which is every app with a domain of its own.
+ *
+ * It is a thin React face over `session.ts`. All the bookkeeping — one session
+ * per origin, expiry handling, redirect collection, legacy adoption — lives
+ * there so a non-React site gets exactly the same behaviour.
  *
  * The returned `token` is an ORIGIN-SCOPED session token. Pass it to your
  * contract as a call argument; your contract passes its own audience alongside
@@ -21,36 +25,40 @@
  * Requires `memphis-connect.js` loaded as a <script> tag (see the README).
  */
 import { useCallback, useEffect, useState } from 'react';
-function mc() {
-    const m = window.memphis;
-    if (!m || typeof m.connect !== 'function') {
-        throw new Error('memphis-connect.js not loaded (window.memphis missing)');
-    }
-    return m;
-}
+import { getSession, signIn as doSignIn, signOut as doSignOut, resumeFromRedirect, onSessionChange, } from './session.js';
 /**
- * @param app  The name shown to the person in the connect window, and the key
- *             this app's session is stored under. Keep it stable.
+ * @param app     The name shown to the person in the connect window, and the key
+ *                this app's session is stored under. Keep it stable across
+ *                releases or people are silently signed out.
+ * @param legacy  Storage keys this site used before adopting the SDK. Read once
+ *                and adopted, so shipping this does not log out everyone who was
+ *                already signed in.
  */
-export function useMemphisConnect(app) {
+export function useMemphisConnect(app, legacy = []) {
     const [session, setSession] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState();
     useEffect(() => {
+        // Order matters. A redirect-mode return arrives in the URL fragment and must
+        // be consumed on this load — resumeFromRedirect also strips the fragment, so
+        // a token is never left in the address bar. Only if there is nothing to
+        // collect do we fall back to a session held from an earlier visit.
         try {
-            // Order matters. A redirect-mode return arrives in the URL fragment and
-            // must be consumed on this load — `resume` also strips the fragment, so a
-            // token is never left in the address bar. Only if there is nothing to
-            // collect do we fall back to a session held from an earlier visit.
-            setSession(mc().resume() ?? mc().loadSession(app));
+            setSession(resumeFromRedirect() ?? getSession(app, legacy));
         }
         catch { /* memphis-connect.js not present yet */ }
+        // Another tab signing out should not leave this one holding a token it has
+        // forgotten, and another tab signing in should fill this one in.
+        return onSessionChange(app, setSession);
+        // `legacy` is a config array, not state; re-running on a new array identity
+        // would re-adopt on every render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [app]);
     const signIn = useCallback(async (opts) => {
         setBusy(true);
         setError(undefined);
         try {
-            setSession(await mc().connect({ ...(opts || {}), app }));
+            setSession(await doSignIn(app, opts));
         }
         catch (e) {
             const code = e?.code;
@@ -68,14 +76,9 @@ export function useMemphisConnect(app) {
         }
     }, [app]);
     const signOut = useCallback(() => {
-        // Local only: this app forgets the person. It does not end their Memphis
-        // session, which this app cannot do and should not be able to — end_session
-        // is caller-scoped on Memphis.
-        try {
-            mc().signOut(app);
-        }
-        catch { /* nothing held */ }
+        doSignOut(app, legacy);
         setSession(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [app]);
     return {
         session,
