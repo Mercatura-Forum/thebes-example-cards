@@ -32,6 +32,33 @@ export function useMemphis() {
             setSession(await pk().signInOrRegister(name));
         }
         catch (e) {
+            // Identity-durability P0: a lookup miss is a QUESTION for the human, not
+            // a license to mint. The runtime raises NameNotRegistered instead of
+            // silently registering; we create only on an explicit confirm, and a
+            // decline (or a non-browser environment) leaves the registry untouched.
+            const code = e?.code;
+            if (code === 'NameNotRegistered') {
+                const requested = e.nameRequested || name;
+                const ok = typeof window !== 'undefined' && typeof window.confirm === 'function' &&
+                    window.confirm(`No Memphis identity exists for "${requested}".\n\n` +
+                        'Create a NEW identity with this name? (Cancel if you meant to sign into an existing one.)');
+                if (!ok) {
+                    setError('Sign-in cancelled — no identity created.');
+                    setBusy(false);
+                    return;
+                }
+                try {
+                    setSession(await pk().signInOrRegister(requested, { confirmCreate: true }));
+                }
+                catch (e2) {
+                    setError(e2 instanceof Error ? e2.message : String(e2));
+                    throw e2;
+                }
+                finally {
+                    setBusy(false);
+                }
+                return;
+            }
             setError(e instanceof Error ? e.message : String(e));
             throw e;
         }
