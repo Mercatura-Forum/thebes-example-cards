@@ -4,7 +4,7 @@ declare global {
     CARDS_CID?: number
   }
 }
-export const CARDS_CID: number = (typeof window !== 'undefined' && window.CARDS_CID) || 0
+export const CARDS_CID: number = (typeof window !== 'undefined' && window.CARDS_CID) || 92881495833199
 
 // Card id 0..51: suit = id/13 (0♣ 1♦ 2♥ 3♠), rank = id%13 (0=2 … 12=A).
 export const SUIT_SYMBOL = ['♣', '♦', '♥', '♠'] as const
