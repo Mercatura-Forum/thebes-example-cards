@@ -7,6 +7,11 @@
     <!-- Proven Thebes SDK (window.EgyptBoundary) + Memphis passkey client
          (window.MemphisPasskey) — both vendored, served from /_/raw/{cid}/. -->
     <script src="./boundary.js"></script>
+    <!-- Memphis passkey auth client (window.MemphisPasskey) + the BIP39
+         recovery module (window.MemphisRecovery). Since MIN_FACTORS_AT_SIGNUP
+         rose to 3, a new identity needs the recovery phrase as its third
+         factor, so recovery.js is required for signup, not optional. -->
+    <script src="./recovery.js"></script>
     <script src="./passkey.js"></script>
   </head>
   <body>

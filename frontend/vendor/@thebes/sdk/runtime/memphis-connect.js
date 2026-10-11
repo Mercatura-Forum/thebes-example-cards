@@ -1,7 +1,12 @@
 /*
- * memphis-connect.js — sign a user in from an app on ITS OWN domain.
+ * memphis-connect.js, sign a user in from an app on ITS OWN domain.
  *
- *     <script src="./memphis-connect.js"></script>
+ *     <script src="./memphis-connect.js"><\/script>
+ *
+ * (the backslash is deliberate: a literal closing script tag in this file
+ * terminates the block when the file is INLINED into a page, which is how
+ * the connect e2e harness loads it, and the rest of the module then parses
+ * as HTML text)
  *
  *     const who = await memphis.connect({ app: "My App" });
  *     // who.token is an ORIGIN-SCOPED session token. Pass it to your contract.
@@ -12,13 +17,13 @@
  * A WebAuthn credential is bound to a Relying Party ID, and a page may only
  * claim an RP ID that is a registrable-domain suffix of its own origin. Memphis
  * anchors live under one RP ID. So a page served from `my-app.com` physically
- * cannot run the Memphis passkey ceremony — the browser refuses before any of
+ * cannot run the Memphis passkey ceremony, the browser refuses before any of
  * our code runs. `passkey.js` works only on the Memphis origin itself.
  *
  * This module is the way across that wall. The ceremony happens in a window at
  * the Memphis origin; that window attenuates the master session into a token
  * minted for YOUR origin and hands back only that. Your app never sees a master
- * token, and nothing needs allowlisting — which is why this works for any number
+ * token, and nothing needs allowlisting, which is why this works for any number
  * of apps on any domain, including ones we have never heard of.
  *
  * This is the same shape as Internet Identity's per-frontend delegation and as
@@ -31,10 +36,10 @@
  * A page may LIE about its origin in the request. It gains nothing, because the
  * answer is delivered ONLY to the origin it claimed:
  *
- *   • popup mode    — `postMessage(payload, RETURN_TO)`, never `"*"`. The
+ *   • popup mode   , `postMessage(payload, RETURN_TO)`, never `"*"`. The
  *                     browser refuses delivery when the opener's real origin is
  *                     not RETURN_TO. The liar gets silence.
- *   • redirect mode — the browser is navigated to a return URL that must be
+ *   • redirect mode, the browser is navigated to a return URL that must be
  *                     same-origin as the claimed origin. The credential lands on
  *                     the victim's own page, where the liar cannot read it.
  *
@@ -46,7 +51,7 @@
  * ⚠️ In redirect mode the token arrives in the URL FRAGMENT, never the query
  * string, so it is not sent to your server and does not appear in a `Referer`
  * header or an access log. If your app has an open redirect, it can bounce that
- * fragment to an attacker — the same failure OAuth deployments have had for
+ * fragment to an attacker, the same failure OAuth deployments have had for
  * fifteen years. Validate your own return paths.
  */
 (function (global) {
@@ -116,7 +121,7 @@
   /**
    * Trade the stored refresh credential for a fresh access token, silently.
    *
-   * No window, no gesture, no passkey prompt — this is what "stay signed in for
+   * No window, no gesture, no passkey prompt, this is what "stay signed in for
    * a week" actually is. Returns the new session, or null when there is nothing
    * to renew from, in which case the caller should ask for a real sign-in.
    *
@@ -126,7 +131,7 @@
    * ⚠️ The old refresh token is dead the moment the exchange returns, and
    * presenting it again revokes the entire chain. So the new pair is persisted
    * before this resolves, and a failed write is treated as a failed renewal
-   * rather than being ignored — a chain we cannot record is a chain we have
+   * rather than being ignored, a chain we cannot record is a chain we have
    * already lost.
    */
   function renew(app) {
@@ -157,7 +162,7 @@
         return next;
       })
       .catch(function () {
-        // A refused exchange means the chain is gone — lapsed, revoked, or
+        // A refused exchange means the chain is gone, lapsed, revoked, or
         // revoked BECAUSE this token was replayed. Either way it will never
         // work again, so drop it rather than retrying into the same wall.
         clearSession(app);
@@ -172,7 +177,7 @@
   /**
    * Local sign-out: forget the scoped token held by THIS app.
    *
-   * It does not end the person's Memphis session — this app cannot, and should
+   * It does not end the person's Memphis session, this app cannot, and should
    * not be able to. `end_session` is caller-scoped on Memphis, so ending the
    * underlying session is the Memphis origin's job, reached through the connect
    * window. Signing out here means "this app forgets you", which is what an app
@@ -214,7 +219,13 @@
   function buildUrl(connectUrl, app, opts, extra) {
     var url = connectUrl
       + "?app=" + encodeURIComponent(app)
-      + "&origin=" + encodeURIComponent(global.location.origin);
+      + "&origin=" + encodeURIComponent(global.location.origin)
+      // `hb=1`: this opener understands heartbeat messages, so the connect page
+      // may send them while a ceremony is running and the opener's timeout
+      // becomes a timeout on SILENCE, not on the whole sign-in. An opener that
+      // does not send this never receives one: an older copy of this file
+      // treated any message without `ok` as a failed sign-in.
+      + "&hb=1";
     // `handle` is a PREFILL ONLY, for an app that already asked the customer for
     // one so they are not made to type it twice. The connect page still owns the
     // field and the person may change it. Nothing is authorised by it.
@@ -227,7 +238,7 @@
   /**
    * Navigate the top-level window to the connect page and come back.
    *
-   * Used when a popup is blocked — the common case inside an in-app browser
+   * Used when a popup is blocked, the common case inside an in-app browser
    * (Instagram, LinkedIn, a WebView) and under iOS Safari's stricter gesture
    * rules. This call does not return: the page is being navigated away. Call
    * `memphis.resume()` on load to collect the answer.
@@ -297,7 +308,16 @@
 
   function connectViaPopup(app, opts) {
     var connectUrl = opts.connectUrl || CONNECT_URL;
+    // Two clocks. `timeoutMs` is how long the popup may stay SILENT: the
+    // connect page reports progress every few seconds while a ceremony runs
+    // (a passkey prompt open, the network confirming a step), and each report
+    // restarts this clock. `maxMs` is the ceiling on the whole sign-in. A
+    // single clock on the whole sign-in closes the popup in the middle of a
+    // legitimate slow one: a phone reached over a QR code, a chain confirming
+    // slowly, a person reading twelve words. None of those is the app's to
+    // cut short.
     var timeoutMs = opts.timeoutMs || 120000;
+    var maxMs = opts.maxMs || 15 * 60 * 1000;
 
     // ── The popup is opened SYNCHRONOUSLY, right here ──────────────────────
     // Not after an await, not in a .then. iOS Safari only allows a popup that
@@ -323,24 +343,45 @@
     return new Promise(function (resolve, reject) {
       var done = false;
 
-      function finish(fn, arg) {
+      // keepOpen: on a failure the popup stays where it is, showing the reason
+      // in the person's own words; closing it at once left them with an error
+      // that flashed and vanished, and nothing to report.
+      function finish(fn, arg, keepOpen) {
         if (done) return;
         done = true;
         global.removeEventListener("message", onMessage);
         clearInterval(poll);
         clearTimeout(timer);
-        try { if (win && !win.closed) win.close(); } catch (_) {}
+        clearTimeout(ceiling);
+        if (!keepOpen) { try { if (win && !win.closed) win.close(); } catch (_) {} }
         fn(arg);
+      }
+
+      function armSilenceTimer() {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          var timedOut = new Error("Sign-in timed out.");
+          timedOut.code = "TIMEOUT";
+          finish(reject, timedOut);
+        }, timeoutMs);
       }
 
       function onMessage(ev) {
         // Two checks, both exact. The origin must be the Memphis origin the
-        // popup was opened at — never a prefix or suffix test — and the message
+        // popup was opened at, never a prefix or suffix test, and the message
         // must carry our marker and our app name, so a stray message from
         // another Memphis tab cannot resolve this call.
         if (ev.origin !== new URL(connectUrl).origin) return;
         var d = ev.data;
         if (!d || d.__memphis !== 1 || d.app !== app) return;
+
+        // A heartbeat: the ceremony is alive. Restart the silence clock and
+        // let the page know what the popup is doing, if it asked.
+        if (d.heartbeat) {
+          armSilenceTimer();
+          if (typeof opts.onProgress === "function" && d.text) { try { opts.onProgress(String(d.text)); } catch (_) {} }
+          return;
+        }
 
         if (d.ok) {
           var who = sessionFrom(app, d);
@@ -351,7 +392,8 @@
             ? "Sign-in was cancelled."
             : (d.reason || "Sign-in did not complete."));
           err.code = d.reason === "closed" ? "CANCELLED" : "FAILED";
-          finish(reject, err);
+          try { console.error("[memphis-connect] sign-in failed:", err.code, d.reason); } catch (_) {}
+          finish(reject, err, err.code === "FAILED");
         }
       }
 
@@ -366,11 +408,13 @@
         }
       }, 400);
 
-      var timer = setTimeout(function () {
+      var timer = null;
+      armSilenceTimer();
+      var ceiling = setTimeout(function () {
         var timedOut = new Error("Sign-in timed out.");
         timedOut.code = "TIMEOUT";
         finish(reject, timedOut);
-      }, timeoutMs);
+      }, maxMs);
     });
   }
 
@@ -390,7 +434,11 @@
    *   handle      prefill for the handle field; authorises nothing
    *   returnTo    redirect mode only; must be on this app's own origin
    *   connectUrl  override the Memphis connect page (tests, staging)
-   *   timeoutMs   popup mode only; default 120000
+   *   timeoutMs   popup mode only; how long the popup may stay silent, default
+   *               120000. The connect page reports progress while a ceremony
+   *               runs, and each report restarts this clock.
+   *   maxMs       popup mode only; ceiling on the whole sign-in, default 900000
+   *   onProgress  popup mode only; called with the connect page's stage text
    *   reuse       false to force a fresh ceremony even if a live token is held
    *
    * MUST be called inside a user gesture (a click). A popup opened outside one
