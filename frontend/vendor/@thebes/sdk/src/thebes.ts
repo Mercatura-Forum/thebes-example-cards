@@ -1,10 +1,11 @@
 /**
- * thebes.ts — a small TYPED wrapper over the proven `window.EgyptBoundary` SDK
+ * thebes.ts, a small TYPED wrapper over the proven `window.EgyptBoundary` SDK
  * (vendored as /boundary.js). It exposes exactly what an app needs:
  *   • query / update calls to a Motoko backend (Candid-encoded args)
  *   • raw-JSON calls to the Rust media contract (its methods take serde_json)
  *   • a chunked media upload that drives start → store_chunk → finish
- *   • the persisted browser identity (a stable per-browser sender principal)
+ *   • the persisted browser identity: one Ed25519 key per browser that signs
+ *     every update; identity() is the principal the canister sees as msg.caller
  *
  * Why wrap rather than reimplement: boundary.js is the deployed, battle-tested
  * client (Candid LEB128 + receipt polling + identity). We add types + the media
@@ -15,6 +16,11 @@
 type Boundary = {
   BOUNDARY: string
   identity: () => string
+  ready: () => Promise<string>
+  publicKey: () => string
+  principalOf: (publicKey: string | Uint8Array) => string
+  isPersistentIdentity: () => boolean
+  signCall: (cid: number | string, method: string, argHex: string) => Promise<{ sender: string; nonce: number; signature: string }>
   encodeArg: (v: unknown) => Uint8Array
   encodeArgs: (vs: unknown[]) => Uint8Array
   bytesToHex: (b: Uint8Array) => string
@@ -46,9 +52,22 @@ function boundary(): Boundary {
   return b
 }
 
-/** Stable per-browser identity (28-byte sender persisted in localStorage). */
+/** This browser's principal: SHA-224(DER(pk)) ‖ 0x02 of its Ed25519 key, the
+ *  `msg.caller` the canister sees for every update this browser signs. Throws
+ *  `ThebesIdentityNotReady` on a first visit until `ready()` resolves. */
 export function identity(): string {
   return boundary().identity()
+}
+
+/** Resolves (to identity()) once this browser's key is loaded or made. Await it
+ *  before the first render that reads identity(). */
+export function ready(): Promise<string> {
+  return boundary().ready()
+}
+
+/** This browser's raw Ed25519 public key (hex), the `sender` it signs as. */
+export function publicKey(): string {
+  return boundary().publicKey()
 }
 
 export const EMPTY_ARGS_HEX = (): string => boundary().EMPTY_ARGS_HEX
@@ -89,7 +108,7 @@ export const decodeVecRecord = (
 
 const enc = new TextEncoder()
 
-/** The media contract methods take raw JSON, NOT Candid — encode JSON → hex. */
+/** The media contract methods take raw JSON, NOT Candid, encode JSON → hex. */
 function jsonArgHex(obj: unknown): string {
   return boundary().bytesToHex(enc.encode(JSON.stringify(obj)))
 }
@@ -120,7 +139,7 @@ function toBase64(bytes: Uint8Array): string {
 /**
  * Upload bytes to the media contract via the chunked flow, returning the stored
  * path + metadata. The server transcodes images (pass-3) so the client only
- * needs to keep the upload under the class input cap — the caller can downscale
+ * needs to keep the upload under the class input cap, the caller can downscale
  * first via `downscaleImage`. `onProgress` reports 0..1 across stored chunks.
  */
 export async function uploadMedia(
@@ -158,7 +177,7 @@ export async function uploadMedia(
 
 /**
  * Client-side downscale + JPEG encode via <canvas> so the upload stays under the
- * class input cap (the contract also transcodes server-side — this just bounds
+ * class input cap (the contract also transcodes server-side, this just bounds
  * the bytes we send). Returns JPEG bytes + content type.
  */
 export async function downscaleImage(file: File, maxDim: number, quality = 0.85): Promise<{ bytes: Uint8Array; contentType: string }> {
