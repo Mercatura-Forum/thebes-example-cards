@@ -3,12 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Thebes example dapp — on-chain card games: Estimation + Tarneeb (React + Vite + Tailwind, served as certified assets).",
+  "description": "Thebes example dapp \u2014 on-chain card games: Estimation + Tarneeb (React + Vite + Tailwind, served as certified assets).",
   "scripts": {
     "dev": "npm run sync-sdk && vite",
     "build": "npm run sync-sdk && tsc -b && vite build",
     "preview": "vite preview",
-    "sync-sdk": "mkdir -p public && cp node_modules/@thebes/sdk/runtime/boundary.js node_modules/@thebes/sdk/runtime/passkey.js public/"
+    "sync-sdk": "mkdir -p public && cp node_modules/@thebes/sdk/runtime/boundary.js node_modules/@thebes/sdk/runtime/passkey.js node_modules/@thebes/sdk/runtime/recovery.js node_modules/@thebes/sdk/runtime/noble-ed25519-3.1.0.js public/"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.2.10",

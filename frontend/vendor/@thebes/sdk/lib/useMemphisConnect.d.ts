@@ -5,7 +5,7 @@ export interface MemphisConnectAuth {
     displayName: string;
     /** The scoped token to pass to your contract, or undefined when signed out. */
     token: string | undefined;
-    /** MUST be called from a user gesture — a popup or redirect outside one is blocked. */
+    /** MUST be called from a user gesture, a popup or redirect outside one is blocked. */
     signIn: (opts?: ConnectOptions) => Promise<void>;
     signOut: () => void;
     busy: boolean;
